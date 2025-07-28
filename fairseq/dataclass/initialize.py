@@ -8,23 +8,38 @@ import logging
 from hydra.core.config_store import ConfigStore
 from fairseq.dataclass.configs import FairseqConfig
 from omegaconf import DictConfig, OmegaConf
+from dataclasses import fields, is_dataclass, MISSING
 
 
 logger = logging.getLogger(__name__)
 
 
 def hydra_init(cfg_name="config") -> None:
-
     cs = ConfigStore.instance()
     cs.store(name=f"{cfg_name}", node=FairseqConfig)
 
-    for k in FairseqConfig.__dataclass_fields__:
-        v = FairseqConfig.__dataclass_fields__[k].default
-        try:
-            cs.store(name=k, node=v)
-        except BaseException:
-            logger.error(f"{k} - {v}")
-            raise
+    for f in fields(FairseqConfig):
+        k = f.name
+        v = f.default
+
+        print(f"Registering config: {k}")
+        
+        # Nếu field không có default và không có default_factory -> skip (vì không thể instantiate được)
+        if v is MISSING and f.default_factory is MISSING:
+            print(f"❌ Skipped config '{k}' because it's missing default.")
+            continue
+        
+        # Nếu default là 1 dataclass, thì mới store vào hydra
+        node = v if v is not MISSING else f.default_factory()
+        if is_dataclass(node):
+            try:
+                cs.store(name=k, node=node)
+                print(f"✅ Registered config: {k}")
+            except Exception as e:
+                print(f"❌ Failed to register {k}: {e}")
+                raise
+        else:
+            print(f"⚠️ Skipped non-dataclass config: {k} (type={type(node)})")
 
 
 def add_defaults(cfg: DictConfig) -> None:
